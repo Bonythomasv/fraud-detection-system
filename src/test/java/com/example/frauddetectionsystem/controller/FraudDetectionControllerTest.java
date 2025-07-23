@@ -68,28 +68,6 @@ class FraudDetectionControllerTest {
                 .andExpect(jsonPath("$.reason").value("Approved"));
     }
 
-    // @Test
-    // void testCheckFraud_Rejected_InvalidRequest() throws Exception {
-    //     // Arrange - Create an invalid request with missing required fields and invalid values
-    //     String invalidRequest = "{"
-    //             + "\"transactionId\":\"\"," // empty
-    //             + "\"amount\":-100," // negative
-    //             + "\"originatorDetails\":{}," // empty map
-    //             + "\"eTransferDetails\":{}," // empty map
-    //             + "\"ipAddress\":\"\"" // empty
-    //             + "}";
-
-    //     // Act & Assert - Check for the basic error response structure
-    //     mockMvc.perform(post("/v1/fraud-check")
-    //             .contentType(MediaType.APPLICATION_JSON)
-    //             .content(invalidRequest))
-    //             .andDo(print())
-    //             .andExpect(status().isBadRequest())
-    //             .andExpect(jsonPath("$.status").value(400))
-    //             .andExpect(jsonPath("$.errors").isArray())
-    //             .andExpect(jsonPath("$.errors").isNotEmpty());
-    // }
-
     private TransactionRequest createTestRequest(String amount, String ipAddress) {
         TransactionRequest request = new TransactionRequest();
         request.setTransactionId("tx123");
