@@ -176,12 +176,123 @@ Tests:
 
 ---
 
-## Future Considerations
+## Rule Management
 
-- Add ML/behavior-based fraud rules
-- Redis cache & PostgreSQL DB in production
-- Monitoring & rule evaluation logging
-- Support for distributed caching & DB clustering
+The system provides REST endpoints for managing fraud detection rules:
+
+### Rule Management Endpoints
+
+- **GET /api/rules** - List all rules with pagination
+- **POST /api/rules** - Create a new rule
+- **PUT /api/rules/{id}** - Update an existing rule
+- **DELETE /api/rules/{id}** - Delete a rule
+- **GET /api/rules/{id}** - Get a specific rule by ID
+- **PATCH /api/rules/{id}/toggle** - Enable/disable a rule
+- **GET /api/rules/active** - Get all active rules
+- **GET /api/rules/active/type/{ruleType}** - Get active rules by type
+- **GET /api/rules/stats** - Get rule statistics
+- **POST /api/rules/cache/clear** - Clear rule cache
+
+### Current Rule Types
+
+The system currently supports these rule types:
+
+1. **AMOUNT_THRESHOLD** - Evaluate transaction amounts
+2. **IP_BLACKLIST** - Block specific IP addresses or patterns
+3. **DUPLICATE_TRANSACTION** - Detect duplicate transactions
+
+### Adding a New Rule
+
+To add a new fraud detection rule, you need to modify 2 files:
+
+#### Step 1: Add Rule Type to Enum
+
+Add your new rule type to `FraudRule.RuleType` enum in `FraudRule.java`:
+
+```java
+public enum RuleType {
+    AMOUNT_THRESHOLD,
+    IP_BLACKLIST,
+    DUPLICATE_TRANSACTION,
+    YOUR_NEW_RULE_TYPE  // Add your new rule type here
+}
+```
+
+#### Step 2: Implement Rule Evaluation Logic
+
+Add the evaluation logic in `RuleEngineService.java`:
+
+1. **Add case to switch statement** in `evaluateRule()` method:
+```java
+switch (rule.getRuleType()) {
+    case AMOUNT_THRESHOLD:
+        return evaluateAmountThreshold(rule, transaction);
+    case IP_BLACKLIST:
+        return evaluateIpBlacklist(rule, transaction);
+    case DUPLICATE_TRANSACTION:
+        return evaluateDuplicateTransaction(rule, transaction);
+    case YOUR_NEW_RULE_TYPE:  // Add this case
+        return evaluateYourNewRuleType(rule, transaction);
+    default:
+        // ...
+}
+```
+
+2. **Implement the evaluation method**:
+```java
+private RuleEvaluationResult evaluateYourNewRuleType(FraudRule rule, Transaction transaction) {
+    // Your custom evaluation logic here
+    // Access rule properties: rule.getStringValue(), rule.getThresholdValue(), rule.getRuleCondition()
+    // Access transaction data: transaction.getAmount(), transaction.getIpAddress(), etc.
+    
+    boolean triggered = /* your logic */;
+    return triggered ? RuleEvaluationResult.triggered(rule) : RuleEvaluationResult.notTriggered();
+}
+```
+
+### Rule Conditions
+
+Based on the current implementation, these conditions are supported:
+
+**For AMOUNT_THRESHOLD rules:**
+- `GREATER_THAN`
+- `GREATER_THAN_OR_EQUAL`
+- `LESS_THAN`
+- `LESS_THAN_OR_EQUAL`
+
+**For IP_BLACKLIST rules:**
+- `STARTS_WITH`
+- `EQUALS`
+- `CONTAINS`
+- `REGEX`
+
+### Example: Creating a Rule via API
+
+```json
+{
+    "ruleName": "HIGH_AMOUNT_THRESHOLD",
+    "ruleType": "AMOUNT_THRESHOLD",
+    "ruleCondition": "GREATER_THAN",
+    "actionType": "REJECT",
+    "actionMessage": "Transaction amount exceeds limit",
+    "priority": 1,
+    "thresholdValue": 2000.00,
+    "isActive": true
+}
+```
+
+```json
+{
+    "ruleName": "BLOCKED_IP_RANGE",
+    "ruleType": "IP_BLACKLIST",
+    "ruleCondition": "STARTS_WITH",
+    "actionType": "REJECT",
+    "actionMessage": "IP address is blocked",
+    "priority": 2,
+    "stringValue": "192.168.1.",
+    "isActive": true
+}
+```
 
 ---
 
@@ -207,4 +318,44 @@ Tests:
 - Postman collection
 - API documentation
 - Unit/integration tests
-- Config: H2 + in-memory cache (Caffeine)
+
+---
+
+## Future Considerations
+
+### Enhanced Rule Engine
+- Add ML/behavior-based fraud rules
+- Support for complex rule chaining and dependencies
+- Rule versioning and A/B testing capabilities
+- Dynamic rule priority adjustment based on performance metrics
+
+### Production Infrastructure
+- Redis cache & PostgreSQL DB in production
+- Support for distributed caching & DB clustering
+- Multi-region deployment with data replication
+- Auto-scaling based on transaction volume
+
+### Observability & Monitoring
+- Structured JSON logging with correlation IDs
+- Comprehensive metrics and alerting (Prometheus/Grafana)
+- Distributed tracing (Jaeger/Zipkin)
+- Rule evaluation performance monitoring
+- Fraud detection accuracy tracking
+
+### Administrative Tools
+- Web-based UI for rule management and monitoring
+- Rule testing and simulation environment
+- Bulk rule import/export capabilities
+- Audit trail for all rule changes
+- Real-time rule performance dashboards
+
+### Security & Compliance
+- End-to-end encryption for sensitive data
+- PCI DSS compliance features
+- Advanced threat detection
+- Automated compliance reporting
+
+### Integration & APIs
+- Webhook support for real-time notifications
+- Integration with external fraud detection services
+- Support for multiple data formats (JSON, XML, Avro)
