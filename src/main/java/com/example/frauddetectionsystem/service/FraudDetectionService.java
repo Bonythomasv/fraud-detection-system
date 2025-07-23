@@ -1,85 +1,106 @@
 package com.example.frauddetectionsystem.service;
 
+import com.example.frauddetectionsystem.domain.FraudRule;
 import com.example.frauddetectionsystem.domain.Transaction;
 import com.example.frauddetectionsystem.dto.FraudDetectionResult;
+import com.example.frauddetectionsystem.dto.RuleEvaluationResult;
 import com.example.frauddetectionsystem.dto.TransactionStatus;
 import com.example.frauddetectionsystem.repository.TransactionRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 @Service
+@Slf4j
 public class FraudDetectionService {
 
     private final TransactionRepository transactionRepository;
+    private final RuleEngineService ruleEngineService;
+    private final Executor fraudDetectionExecutor;
 
     @Autowired
-    public FraudDetectionService(TransactionRepository transactionRepository) {
+    public FraudDetectionService(
+            TransactionRepository transactionRepository,
+            RuleEngineService ruleEngineService,
+            @Qualifier("fraudDetectionExecutor") Executor fraudDetectionExecutor) {
         this.transactionRepository = transactionRepository;
+        this.ruleEngineService = ruleEngineService;
+        this.fraudDetectionExecutor = fraudDetectionExecutor;
     }
 
     @Transactional
     public FraudDetectionResult checkTransaction(Transaction transaction) {
-        // Check for duplicate transaction ID
-        if (transactionRepository.existsByTransactionId(transaction.getTransactionId())) {
+        log.info("Starting fraud detection for transaction: {}", transaction.getTransactionId());
+        
+        try {
+            // Quick duplicate check first (synchronous)
+            if (transactionRepository.existsByTransactionId(transaction.getTransactionId())) {
+                log.warn("Duplicate transaction detected: {}", transaction.getTransactionId());
+                return new FraudDetectionResult(
+                    transaction.getTransactionId(),
+                    TransactionStatus.REJECTED,
+                    "Duplicate transaction ID"
+                );
+            }
+
+            // Evaluate rules asynchronously and wait for result
+            CompletableFuture<RuleEvaluationResult> ruleEvaluation = 
+                ruleEngineService.evaluateRulesAsync(transaction);
+            
+            // Wait for rule evaluation with timeout
+            RuleEvaluationResult result = ruleEvaluation.get();
+            
+            // Convert rule evaluation result to fraud detection result
+            TransactionStatus status = mapActionToStatus(result.getActionType());
+            String message = result.getMessage();
+            
+            // Save transaction with determined status
+            saveTransaction(transaction, status, message);
+            
+            log.info("Fraud detection completed for transaction {}: {} - {}", 
+                transaction.getTransactionId(), status, message);
+            
+            return new FraudDetectionResult(
+                transaction.getTransactionId(),
+                status,
+                message
+            );
+            
+        } catch (Exception e) {
+            log.error("Error during fraud detection for transaction {}: {}", 
+                transaction.getTransactionId(), e.getMessage(), e);
+            
+            // Fail safe - reject on error
+            saveTransaction(transaction, TransactionStatus.REJECTED, "System error during fraud detection");
             return new FraudDetectionResult(
                 transaction.getTransactionId(),
                 TransactionStatus.REJECTED,
-                "Duplicate transaction ID"
+                "System error during fraud detection"
             );
         }
-
-        // Check if IP is in blocked range (192.0.0.0/24)
-        if (isIpBlocked(transaction.getIpAddress())) {
-            saveTransaction(transaction, TransactionStatus.REJECTED, "IP address is blocked");
-            return new FraudDetectionResult(
-                transaction.getTransactionId(),
-TransactionStatus.REJECTED,
-                "IP address is blocked"
-            );
-        }
-
-        // Check amount thresholds
-        BigDecimal amount = transaction.getAmount();
-        if (amount == null) {
-            saveTransaction(transaction, TransactionStatus.REJECTED, "Invalid amount");
-            return new FraudDetectionResult(
-                transaction.getTransactionId(),
-TransactionStatus.REJECTED,
-                "Invalid amount"
-            );
-        }
-
-        if (amount.compareTo(new BigDecimal("2000")) > 0) {
-            saveTransaction(transaction, TransactionStatus.REJECTED, "Amount exceeds maximum limit");
-            return new FraudDetectionResult(
-                transaction.getTransactionId(),
-TransactionStatus.REJECTED,
-                "Amount exceeds maximum limit"
-            );
-        } else if (amount.compareTo(new BigDecimal("1000")) >= 0) {
-            saveTransaction(transaction, TransactionStatus.HOLD, "Requires manual review");
-            return new FraudDetectionResult(
-                transaction.getTransactionId(),
-TransactionStatus.HOLD,
-                "Requires manual review"
-            );
-        }
-
-        // If all checks pass, approve the transaction
-        saveTransaction(transaction, TransactionStatus.APPROVED, "Approved");
-        return new FraudDetectionResult(
-            transaction.getTransactionId(),
-TransactionStatus.APPROVED,
-            "Approved"
-        );
     }
-
-    private boolean isIpBlocked(String ipAddress) {
-        // Check if IP is in the blocked range (192.0.0.0/24)
-        return ipAddress != null && ipAddress.startsWith("192.0.0.");
+    
+    @Async("fraudDetectionExecutor")
+    public CompletableFuture<FraudDetectionResult> checkTransactionAsync(Transaction transaction) {
+        return CompletableFuture.supplyAsync(() -> checkTransaction(transaction), fraudDetectionExecutor);
+    }
+    
+    private TransactionStatus mapActionToStatus(FraudRule.ActionType actionType) {
+        if (actionType == null) {
+            return TransactionStatus.REJECTED;
+        }
+        
+        return switch (actionType) {
+            case APPROVE -> TransactionStatus.APPROVED;
+            case REJECT -> TransactionStatus.REJECTED;
+            case HOLD, FLAG_FOR_REVIEW -> TransactionStatus.HOLD;
+        };
     }
 
     @Transactional
@@ -88,5 +109,8 @@ TransactionStatus.APPROVED,
         transaction.setStatus(status);
         transaction.setStatusReason(statusReason);
         transactionRepository.save(transaction);
+        
+        log.debug("Transaction {} saved with status: {} - {}", 
+            transaction.getTransactionId(), status, statusReason);
     }
 }
