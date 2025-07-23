@@ -25,8 +25,9 @@ public class TransactionRequest {
     @Valid
     private TransactionDetails eTransferDetails;
 
+    @NotBlank(message = "IP address is required")
     @Pattern(regexp = "^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$", 
-            message = "Invalid IP address format")
+            message = "Invalid IP address format. Must be a valid IPv4 address")
     private String ipAddress;
 
     // Getters and Setters

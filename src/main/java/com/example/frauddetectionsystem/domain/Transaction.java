@@ -26,7 +26,7 @@ public class Transaction {
     @Column(nullable = false)
     private BigDecimal amount;
     
-    @Column(nullable = false)
+    @Column(name = "ip_address", length = 45) // Made nullable since validation is handled at request level
     private String ipAddress;
     
     @Enumerated(EnumType.STRING)
